@@ -1,0 +1,8 @@
+- name: Run using a project directory
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Tear down existing services
+      community.docker.docker_compose_v2:
+        project_src: $(pwd)
+        state: absent
