@@ -1,0 +1,23 @@
+---
+- hosts: localhost
+  become: true
+  tasks:
+    - name: add scrit to run at boot
+      ansible.builtin.copy:
+        dest: /usr/local/bin/run_at_boot.sh
+        content: |
+          #!/bin/bash
+          echo "this was runned at boot ${date}" >> /var/log/my_data.log
+          cd /home/ubuntu/cloud-1 && docker compose up -d
+        mode: 0755
+
+    - name: setub cron job for my script
+      ansible.builtin.cron:
+        name: "Run script at boot"
+        special_time: reboot
+        job: "/usr/local/bin/run_at_boot.sh"
+        user: root
+
+        #    - name: run docker compose command 
+        #      become: true
+        #      ansible.builtin.shell: docker compose up -d
