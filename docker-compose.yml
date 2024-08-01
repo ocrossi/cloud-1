@@ -1,47 +1,78 @@
 version: "3.9"
 
 services:
+  
+  nginx:
+    container_name: ${CONTAINER_NAME}-nginx
+    build:
+      context: .
+      dockerfile: ./nginx/Dockerfile
+    restart: always
+    env_file: .env
+    environment:
+      HOSTNAME: ${NGINX_HOSTNAME}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - "./wordpress_persistent:/var/www/html"
+    networks:
+      - internal
+
   db:
+    container_name: ${CONTAINER_NAME}-db
     image: mysql:8.0
     restart: always
     environment:
-      MYSQL_ROOT_PASSWORD: password
-      MYSQL_DATABASE: wordpress
-      MYSQL_USER: wordpress
-      MYSQL_PASSWORD: wordpress
+      MYSQL_DATABASE: ${DATABASE_NAME}
+      MYSQL_PASSWORD: ${DATABASE_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${DATABASE_ROOT_PASSWORD}
+      MYSQL_USER: ${DATABASE_USER}
+    healthcheck:
+      test: [ "CMD", "mysqladmin" ,"ping", "-h", "localhost", "-u", "root", "-p$$DATABASE_ROOT_PASSWORD" ]
+      timeout: 20s
+      retries: 10
+    ports:
+      - "3306:3306"
     networks:
-      - wpsite
+      - internal
+    volumes:
+      - db_data:/var/lib/mysql
 
   phpmyadmin:
+    container_name: ${CONTAINER_NAME}-phpmyadmin
     image: phpmyadmin/phpmyadmin
     restart: always
     depends_on:
       - db
-    ports:
-      - '8080:80'
+    env_file: .env
     environment:
       PMA_HOST: db
-      MYSQL_ROOT_PASSWORD: password 
+      PMA_PORT: 3306
+      MYSQL_ROOT_PASSWORD: "${DATABASE_ROOT_PASSWORD}"
+    ports:
+      - '8080:80'
     networks:
-      - wpsite
+      - internal
 
   wordpress:
+    container_name: ${CONTAINER_NAME}-wordpress
     image: wordpress:latest
     depends_on:
       - db
     ports:
       - "8000:80"
     restart: always
-    volumes: ["./wordpress_persistent:/var/www/html"]
-    environment: 
+    env_file: .env
+    environment:
       WORDPRESS_DB_HOST: db:3306
-      WORDPRESS_DB_USER: wordpress
-      WORDPRESS_DB_PASSWORD: wordpress
+    volumes: 
+      - "./wordpress_persistent:/var/www/html"
+      - ./certs:/etc/ssl/certs:ro
     networks:
-      - wpsite
+      - internal
 
 networks:
-  wpsite:
+  internal:
 volumes:
   db_data:
-
