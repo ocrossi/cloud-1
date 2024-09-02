@@ -2,14 +2,9 @@
 
 set -eu
 
-sudo apt-get update -yq && sudo apt-get upgrade -yq && sudo apt-get install ansible
-sudo apt-get install -yq python3-boto3
+apt-get update -yq && apt-get upgrade -yq && apt-get -yq install ansible
 
-sudo apt-get install wget libnss3-tools -yq
-wget https://github.com/FiloSottile/mkcert/releases/download/v1.4.3/mkcert-v1.4.3-linux-amd64
-mv mkcert-v1.4.3-linux-amd64 /usr/bin/mkcert
-chmod +x /usr/bin/mkcert
-
+ansible-playbook -i localhost single_playbook.yml -e ansible_user="ansible_user"
 
 ln -s ./run_at_boot.sh /usr/local/bin/run_at_boot.sh
 
