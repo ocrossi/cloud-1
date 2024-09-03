@@ -1,28 +1,34 @@
 version: "3.9"
 
 services:
-  
-  nginx:
-    container_name: ${CONTAINER_NAME}-nginx
-    build:
-      context: .
-      dockerfile: ./nginx/Dockerfile
-    restart: always
-    env_file: .env
-    environment:
-      HOSTNAME: ${NGINX_HOSTNAME}
+
+  reverse_proxy:
+    image: traefik:v3.1
+    command: 
+      - "--providers.docker"
+      - "--log=true"
+      - "--log.level=DEBUG"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesResolvers.internal.acme.email=admin@cloud1.work.gd"
+      - "--certificatesResolvers.internal.acme.storage=/certs/acme.json"
+      - "--certificatesResolvers.internal.acme.httpChallenge.entryPoint=web"
     ports:
       - "80:80"
       - "443:443"
-    volumes:
-      - "./wordpress_persistent:/var/www/html"
     networks:
-      - internal
+      internal:
+        aliases:
+          - "cloud1.work.gd"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data/traefik:/certs
 
   db:
     container_name: ${CONTAINER_NAME}-db
     image: mysql:8.0
     restart: always
+    env_file: .env
     environment:
       MYSQL_DATABASE: ${DATABASE_NAME}
       MYSQL_PASSWORD: ${DATABASE_PASSWORD}
@@ -32,8 +38,7 @@ services:
       test: [ "CMD", "mysqladmin" ,"ping", "-h", "localhost", "-u", "root", "-p$$DATABASE_ROOT_PASSWORD" ]
       timeout: 20s
       retries: 10
-    ports:
-      - "3306:3306"
+      interval: 5s
     networks:
       - internal
     volumes:
@@ -44,33 +49,50 @@ services:
     image: phpmyadmin/phpmyadmin
     restart: always
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     env_file: .env
     environment:
+      PMA_ABSOLUTE_URI: https://cloud1.work.gd/phpmyadmin/
       PMA_HOST: db
       PMA_PORT: 3306
       MYSQL_ROOT_PASSWORD: "${DATABASE_ROOT_PASSWORD}"
-    ports:
-      - '8080:80'
     networks:
       - internal
+    labels:
+      - "traefik.http.routers.phpmyadmin.rule=Host(`cloud1.work.gd`)&&PathPrefix(`/phpmyadmin`)"
+                              # care dont give same name for different rules for a router or will bug
+      - "traefik.http.routers.phpmyadmin.entrypoints=websecure"
+      - "traefik.http.routers.phpmyadmin.tls=true"
+      - "traefik.http.routers.phpmyadmin.tls.certresolver=internal"
+      - "traefik.http.routers.phpmyadmin.middlewares=phpmyadmin-slash,phpmyadmin-stripprefix"
+      - "traefik.http.middlewares.phpmyadmin-stripprefix.stripprefix.prefixes=/phpmyadmin"
+      - "traefik.http.middlewares.phpmyadmin-slash.redirectregex.regex=^(https?://[^/]+/[^/]+)$$"
+      - "traefik.http.middlewares.phpmyadmin-slash.redirectregex.replacement=$${1}/"
+      - "traefik.http.middlewares.phpmyadmin-slash.redirectregex.permanent=true"
 
   wordpress:
     container_name: ${CONTAINER_NAME}-wordpress
     image: wordpress:latest
     depends_on:
-      - db
-    ports:
-      - "8000:80"
+      db:
+        condition: service_healthy
     restart: always
     env_file: .env
     environment:
       WORDPRESS_DB_HOST: db:3306
+      WORDPRESS_DB_NAME: $DATABASE_NAME
+      WORDPRESS_DB_USER: $DATABASE_USER
+      WORDPRESS_DB_PASSWORD: $DATABASE_PASSWORD
     volumes: 
       - "./wordpress_persistent:/var/www/html"
-      - ./certs:/etc/ssl/certs:ro
     networks:
       - internal
+    labels:
+      - "traefik.http.routers.wordpress.rule=Host(`cloud1.work.gd`)"
+      - "traefik.http.routers.wordpress.entrypoints=websecure"
+      - "traefik.http.routers.wordpress.tls=true"
+      - "traefik.http.routers.wordpress.tls.certresolver=internal"
 
 networks:
   internal:
