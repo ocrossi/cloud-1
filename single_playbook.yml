@@ -50,10 +50,13 @@
         mode: '0755'
         state: file
 
-    - name: Install OpenSSL
-      apt:
-        name: openssl
-        state: present
+          #- name: Install OpenSSL
+          #  apt:
+          #    name: openssl
+          #    state: present
+
+    - name: add certbot
+      ansible.builtin.command: sudo snap install --classic certbot && sudo ln -s /snap/bin/certbot /usr/bin/certbot
 
 
     - name: add scrit to run at boot
@@ -65,9 +68,21 @@
           cd /home/ubuntu/cloud-1 && docker compose up -d
         mode: 0755
 
-    - name: setub cron job for my script
+    - name: setup cron job to launch script on reboot
       ansible.builtin.cron:
         name: "Run script at boot"
         special_time: reboot
         job: "/usr/local/bin/run_at_boot.sh"
         user: root
+
+
+    - name: add .env variables to bashrc and source bashrc
+      ansible.builtin.command: |
+        echo 'export $(xargs </home/ubuntu/cloud-1/.env)' >> ~/.bashrc && source ~/.bashrc
+
+    - name: Install step-ca
+      ansible.builtin.command: |
+          wget https://dl.smallstep.com/cli/docs-cli-install/latest/step-cli_amd64.deb && sudo dpkg -i step-cli_amd64.deb 
+
+    - name: run script
+      ansible.builtin.command: sudo sh /usr/local/bin/run_at_boot.sh

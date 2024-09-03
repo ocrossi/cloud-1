@@ -1,0 +1,1 @@
+export DATABASE_NAME=wordpress DATABASE_USER=my_user DATABASE_PASSWORD=user_pass DATABASE_ROOT_PASSWORD=root_pass NGINX_HOSTNAME=myawesome_cloud1_website CONTAINER_NAME=cloud-one
