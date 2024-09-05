@@ -1,3 +1,4 @@
 wordpress_persistent
 nginx/certs/*
 data/
+vault
