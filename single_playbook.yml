@@ -1,18 +1,64 @@
 ---
 - hosts: localhost
+  vars_files:
+    - vault
+  tasks:
+
+    - name: Create EC2 instance
+      amazon.aws.ec2_instance:
+        aws_access_key: "{{ aws_access_key }}"
+        aws_secret_key: "{{ aws_secret_key }}"
+        region: "{{ region }}"
+        key_name: oneshot1
+        instance_type: t2.medium
+        image_id: ami-04a92520784b93e73
+        wait: yes
+        security_group: ansible-group
+        count: 1
+        vpc_subnet_id: subnet-013d1009ddcffc87f
+        network:
+          assign_public_ip: no
+        state: started
+      register: ec2
+
+    - name: Remove Elastic IP with associated EC2 instance
+      amazon.aws.ec2_eip:
+        aws_access_key: "{{ aws_access_key }}"
+        aws_secret_key: "{{ aws_secret_key }}"
+        region: "{{ region }}"
+        device_id: "{{ ec2.instance_ids[0] }}"
+        ip: 52.47.34.182
+        state: absent
+
+    - name: Associate Elastic IP with EC2 instance
+      amazon.aws.ec2_eip:
+        aws_access_key: "{{ aws_access_key }}"
+        aws_secret_key: "{{ aws_secret_key }}"
+        region: "{{ region }}"
+        device_id: "{{ ec2.instance_ids[-1] }}"
+        ip: "{{ elastic_ip }}"
+
+    - name: gimme eip
+      ansible.builtin.debug:
+        msg: "{{ elastic_ip }}"
+
+    - name: gimme instances
+      ansible.builtin.debug:
+        msg: "{{ ec2 }}"
+
+    - name: wait for ssh to come up
+      wait_for: host="cloudone.work.gd" port=22 delay=10  timeout=300
+
+    - name: Remove key entry in host file
+      ansible.builtin.command: ssh-keygen -f ~/.ssh/known_hosts -R cloudone.work.gd
+      # doesnt redirect output to file since it is not a shell
+
+    - name: add ssh key to known hosts
+      ansible.builtin.shell: ssh-keyscan -H cloudone.work.gd >> ~/.ssh/known_hosts
+
+- hosts: all
   become: true
   tasks:
-    - name: Install required system packages
-      apt:
-        name:
-          - apt-transport-https
-          - ca-certificates
-          - curl
-          - software-properties-common
-          - neovim
-        state: latest
-        update_cache: yes
-
     - name: Add Docker’s official GPG key
       apt_key:
         url: https://download.docker.com/linux/ubuntu/gpg
@@ -32,12 +78,6 @@
         state: latest
         update_cache: yes
 
-    - name: Add user to the docker group
-      user:
-        name: "{{ ansible_user }}"
-        groups: docker
-        append: yes
-
     - name: Download Docker Compose
       get_url:
         url: https://github.com/docker/compose/releases/download/1.29.2/docker-compose-Linux-x86_64
@@ -50,39 +90,19 @@
         mode: '0755'
         state: file
 
-          #- name: Install OpenSSL
-          #  apt:
-          #    name: openssl
-          #    state: present
-
-    - name: add certbot
-      ansible.builtin.command: sudo snap install --classic certbot && sudo ln -s /snap/bin/certbot /usr/bin/certbot
-
-
-    - name: add scrit to run at boot
+    - name: Copy files
       ansible.builtin.copy:
-        dest: /usr/local/bin/run_at_boot.sh
-        content: |
-          #!/bin/bash
-          echo "this was runned at boot ${date}" >> /var/log/my_data.log
-          cd /home/ubuntu/cloud-1 && docker compose up -d
-        mode: 0755
-
-    - name: setup cron job to launch script on reboot
-      ansible.builtin.cron:
-        name: "Run script at boot"
-        special_time: reboot
-        job: "/usr/local/bin/run_at_boot.sh"
-        user: root
+        dest: /srv/cloud-1/
+        src: files_remote/.
+        mode: 0700
 
 
-    - name: add .env variables to bashrc and source bashrc
-      ansible.builtin.command: |
-        echo 'export $(xargs </home/ubuntu/cloud-1/.env)' >> ~/.bashrc && source ~/.bashrc
+    - name: Enable docker
+      ansible.builtin.systemd_service:
+        name: docker
+        enabled: true
+        state: started
 
-    - name: Install step-ca
-      ansible.builtin.command: |
-          wget https://dl.smallstep.com/cli/docs-cli-install/latest/step-cli_amd64.deb && sudo dpkg -i step-cli_amd64.deb 
-
-    - name: run script
-      ansible.builtin.command: sudo sh /usr/local/bin/run_at_boot.sh
+    - name: run docker compose
+      community.docker.docker_compose_v2:
+        project_src: /srv/cloud-1/

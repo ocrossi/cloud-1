@@ -1,0 +1,6 @@
+---
+all:
+  hosts:
+    cloudone.work.gd:
+  vars:
+    ansible_user: ubuntu

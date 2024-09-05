@@ -1,0 +1,99 @@
+services:
+
+  reverse_proxy:
+    restart: always
+    image: traefik:v3.1
+    command: 
+      - "--providers.docker"
+      - "--log=true"
+      - "--log.level=DEBUG"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesResolvers.internal.acme.email=admin@${DOMAIN_NAME}"
+      - "--certificatesResolvers.internal.acme.storage=/certs/acme.json"
+      - "--certificatesResolvers.internal.acme.httpChallenge.entryPoint=web"
+    ports:
+      - "80:80"
+      - "443:443"
+    networks:
+      internal:
+        aliases:
+          - "${DOMAIN_NAME}"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data/traefik:/certs
+
+  db:
+    container_name: ${CONTAINER_NAME}-db
+    image: mysql:8.0
+    restart: always
+    env_file: .env
+    environment:
+      MYSQL_DATABASE: ${DATABASE_NAME}
+      MYSQL_PASSWORD: ${DATABASE_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${DATABASE_ROOT_PASSWORD}
+      MYSQL_USER: ${DATABASE_USER}
+    healthcheck:
+      test: [ "CMD", "mysqladmin" ,"ping", "-h", "localhost", "-u", "root", "-p$$DATABASE_ROOT_PASSWORD" ]
+      timeout: 20s
+      retries: 10
+      interval: 5s
+    networks:
+      - internal
+    volumes:
+      - db_data:/var/lib/mysql
+
+  phpmyadmin:
+    container_name: ${CONTAINER_NAME}-phpmyadmin
+    image: phpmyadmin/phpmyadmin:5.2.1-fpm-alpine
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      PMA_ABSOLUTE_URI: https://${DOMAIN_NAME}/phpmyadmin/
+      PMA_HOST: db
+      PMA_PORT: 3306
+      MYSQL_ROOT_PASSWORD: "${DATABASE_ROOT_PASSWORD}"
+    networks:
+      - internal
+    labels:
+      - "traefik.http.routers.phpmyadmin.rule=Host(`${DOMAIN_NAME}`)&&PathPrefix(`/phpmyadmin`)"
+                              # care dont give same name for different rules for a router or will bug
+      - "traefik.http.routers.phpmyadmin.entrypoints=websecure"
+      - "traefik.http.routers.phpmyadmin.tls=true"
+      - "traefik.http.routers.phpmyadmin.tls.certresolver=internal"
+      - "traefik.http.routers.phpmyadmin.middlewares=phpmyadmin-slash,phpmyadmin-stripprefix"
+      - "traefik.http.middlewares.phpmyadmin-stripprefix.stripprefix.prefixes=/phpmyadmin"
+      - "traefik.http.middlewares.phpmyadmin-slash.redirectregex.regex=^(https?://[^/]+/[^/]+)$$"
+      - "traefik.http.middlewares.phpmyadmin-slash.redirectregex.replacement=$${1}/"
+      - "traefik.http.middlewares.phpmyadmin-slash.redirectregex.permanent=true"
+
+  wordpress:
+    container_name: ${CONTAINER_NAME}-wordpress
+    image: wordpress:latest
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: always
+    env_file: .env
+    environment:
+      WORDPRESS_DB_HOST: db:3306
+      WORDPRESS_DB_NAME: $DATABASE_NAME
+      WORDPRESS_DB_USER: $DATABASE_USER
+      WORDPRESS_DB_PASSWORD: $DATABASE_PASSWORD
+    volumes: 
+      - "./wordpress_persistent:/var/www/html"
+    networks:
+      - internal
+    labels:
+      - "traefik.http.routers.wordpress.rule=Host(`${DOMAIN_NAME}`)"
+      - "traefik.http.routers.wordpress.entrypoints=websecure"
+      - "traefik.http.routers.wordpress.tls=true"
+      - "traefik.http.routers.wordpress.tls.certresolver=internal"
+
+networks:
+  internal:
+volumes:
+  db_data:
